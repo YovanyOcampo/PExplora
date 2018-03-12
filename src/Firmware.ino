@@ -2,13 +2,19 @@
 #define RS485Transmit HIGH
 #define RS485Receive LOW
 #define RS485Serial Serial2
+#define interruptPin 21
+#define triggerTransmitter A3
 
-#define interruptPin 20
+volatile unsigned long timeFlaks = 0;
+volatile unsigned long timeFlanksDelay = 0;
+volatile unsigned long timeTrigger = 0;
+volatile unsigned long timeInterruptControl = 0;
 
-volatile unsigned long tiempo = 0;
-volatile unsigned long retardo = 0;
+int byteIO = 0x0000;
 
-int byteIO;
+bool detectedFlag = false;
+
+volatile byte triggerState = LOW;
 
 void setup() {
   attachInterrupt(digitalPinToInterrupt(interruptPin), interruption, FALLING);
@@ -19,31 +25,45 @@ void setup() {
   RS485Serial.begin(9600);
   pinMode(RS485ControlIO, OUTPUT);
   digitalWrite(RS485ControlIO, RS485Receive);
+  timeTrigger = millis();
 }
 
 void loop() {
-  if(Serial.available()) {
+  if (Serial.available()) {
     byteIO = Serial.read();
-    digitalWrite(RS485ControlIO, RS485Transmit);
-    RS485Serial.write(byteIO);
-    delay(10);
-    digitalWrite(RS485ControlIO, RS485Receive);
+    RS485Write(byteIO);
   }
-  if(RS485Serial.available()) {
+  if (RS485Serial.available()) {
     byteIO = RS485Serial.read();
     Serial.write(byteIO);
-    delay(10);
+  }
+
+  if (detectedFlag == true) {
+    detectedFlag = false;
+    if (millis() > ( timeInterruptControl+ 1000)) {
+      timeInterruptControl = millis();
+      Serial.println("DETECTADO!");
+    }
+  }
+
+  if ((millis() - timeTrigger) >= 50) {
+    triggerState = !triggerState;
+    digitalWrite(triggerTransmitter, triggerState);
+    timeTrigger = millis();
   }
 }
 
 void interruption() {
-  retardo = millis() - tiempo;
-  if (retardo > 120 || retardo < 40) {
-    Serial.write("Detected");
-    digitalWrite(RS485ControlIO, RS485Transmit);
-    RS485Serial.write("D");
-    delay(10);
-    digitalWrite(RS485ControlIO, RS485Receive);
+  timeFlanksDelay = millis() - timeFlaks;
+  if (timeFlanksDelay > 120 || timeFlanksDelay < 40) {
+    detectedFlag = true;
   }
-  tiempo = millis();
+  timeFlaks = millis();
+}
+
+void RS485Write (int data) {
+  digitalWrite(RS485ControlIO, RS485Transmit);
+  delay(10);
+  RS485Serial.write(data);
+  digitalWrite(RS485ControlIO, RS485Receive);
 }
